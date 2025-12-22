@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/smart-comps/static/css/main.42241f57.css",
+    "main.js": "/smart-comps/static/js/main.64607ce7.js",
+    "static/js/453.bdfbdeec.chunk.js": "/smart-comps/static/js/453.bdfbdeec.chunk.js",
+    "index.html": "/smart-comps/index.html",
+    "main.42241f57.css.map": "/smart-comps/static/css/main.42241f57.css.map",
+    "main.64607ce7.js.map": "/smart-comps/static/js/main.64607ce7.js.map",
+    "453.bdfbdeec.chunk.js.map": "/smart-comps/static/js/453.bdfbdeec.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.42241f57.css",
+    "static/js/main.64607ce7.js"
+  ]
+}
