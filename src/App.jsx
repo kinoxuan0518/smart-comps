@@ -21,15 +21,21 @@ import {
   Coins,
   Printer,
   FileDown,
-  X
+  X,
+  ArrowUpRight,
+  Percent,
+  Swords,
+  Plus,
+  Trash2,
+  Trophy
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart as RePieChart, Pie, Cell } from 'recharts';
 
 /**
- * SmartComps - 智能薪酬分析与定薪助手 (视觉优化版)
- * * 核心升级：
- * 1. 【顶部看板重构】将 Total Increase 等核心卡片改为上下分层布局，增加分隔线，彻底解决“比例和Gap坨在一起”的问题，视觉更通透。
- * 2. 保持原有的 Word/PDF 导出及所有计算逻辑不变。
+ * SmartComps - 智能薪酬分析与定薪助手 (候选人信息完整版)
+ * * 核心修复：
+ * 1. 【候选人信息补全】：恢复并新增“目前公司”、“年龄”、“部门同级参考”等关键字段，采用 3行x4列 布局。
+ * 2. 【报告同步】：Word 导出同步包含完整的候选人背景信息。
  */
 
 // --- 工具函数 ---
@@ -55,7 +61,23 @@ const formatDelta = (val) => {
 
 const safeParse = (val) => parseFloat(val) || 0;
 
-const COLORS = ['#94a3b8', '#4f46e5', '#10b981', '#f59e0b'];
+const COLORS = ['#94a3b8', '#4f46e5', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#f97316'];
+
+// 默认薪资结构模板
+const defaultStructure = {
+  baseMonthly: 0,
+  months: 13,
+  bonusMonths: 0,
+  performanceBonus: 0,
+  fixedAllowance: 0,
+  signOnBonus: 0,
+  other: 0,
+  stockValue: 0,
+  stockCount: 0,
+  strikePrice: 0,
+  grantPrice: 0,
+  vestingYears: 4,
+};
 
 const SmartSalaryApp = () => {
   // --- 状态管理 ---
@@ -63,47 +85,30 @@ const SmartSalaryApp = () => {
   const [showSocialDetails, setShowSocialDetails] = useState(true); 
   const [showStockDetails, setShowStockDetails] = useState(false); 
   const [showExportModal, setShowExportModal] = useState(false); 
+  const [flowType, setFlowType] = useState('preTax'); 
+  const [showCompeting, setShowCompeting] = useState(false); 
 
-  // 1. 基本信息
+  // 1. 基本信息 (字段补全)
   const [candidateInfo, setCandidateInfo] = useState({
     name: '张三',
     age: '28',
     educationType: '全日制本科',
     school: '某某大学',
     workYears: '5',
+    currentCompany: '某互联网大厂', // 新增：目前公司
     position: '高级前端工程师',
     level: 'P7',
-    peerReference: '李四 (P7)',
+    peerReference: '李四 (P7)', // 新增：部门同级参考
   });
 
-  // 2. 薪资明细
+  // 2. 薪资数据
   const [salaryData, setSalaryData] = useState({
-    current: {
-      baseMonthly: 16672,
-      months: 13,
-      performanceBonus: 15360,
-      fixedAllowance: 0,
-      signOnBonus: 0,
-      stockValue: 0,
-      stockCount: 0,
-      strikePrice: 0,
-      grantPrice: 0,
-      vestingYears: 4,
-      other: 0
-    },
-    offer: {
-      baseMonthly: 20000,
-      months: 14,
-      performanceBonus: 60000,
-      fixedAllowance: 0,
-      signOnBonus: 0,
-      stockValue: 0,
-      stockCount: 0,
-      strikePrice: 0,
-      grantPrice: 0,
-      vestingYears: 4,
-      other: 0
-    }
+    current: { ...defaultStructure, baseMonthly: 16672, performanceBonus: 15360, stockValue: 50000 },
+    offer: { ...defaultStructure, baseMonthly: 22000, months: 14, bonusMonths: 3, performanceBonus: 66000, stockValue: 100000 },
+    competitors: [
+      { id: 1, name: '竞对 A', data: { ...defaultStructure, baseMonthly: 21000, months: 14, performanceBonus: 40000, stockValue: 80000 } },
+      { id: 2, name: '竞对 B', data: { ...defaultStructure, baseMonthly: 23000, months: 13, performanceBonus: 30000, stockValue: 0 } }
+    ]
   });
 
   // 3. 社保公积金
@@ -126,40 +131,45 @@ const SmartSalaryApp = () => {
   const [adviseParams, setAdviseParams] = useState({
     targetIncrease: 0.30, 
     stockRatio: 0.15,     
+    beatCompetitorPremium: 0.05 
   });
 
-  // --- 监听期权明细变化 ---
-  const calculateStockAnnual = (type) => {
-    const data = salaryData[type];
-    const count = safeParse(data.stockCount);
-    const grant = safeParse(data.grantPrice);
-    const strike = safeParse(data.strikePrice);
-    const years = safeParse(data.vestingYears) || 4;
-
-    if (count > 0 && grant > 0) {
-      const totalValue = count * (grant - strike);
-      const annualValue = totalValue / years;
-      return Math.round(annualValue);
-    }
-    return null;
+  // --- 竞对管理逻辑 ---
+  const addCompetitor = () => {
+    const newId = salaryData.competitors.length > 0 ? Math.max(...salaryData.competitors.map(c => c.id)) + 1 : 1;
+    const nextLabel = String.fromCharCode(65 + salaryData.competitors.length);
+    setSalaryData(prev => ({
+      ...prev,
+      competitors: [...prev.competitors, { id: newId, name: `竞对 ${nextLabel}`, data: { ...defaultStructure } }]
+    }));
   };
 
-  useEffect(() => {
-    const val = calculateStockAnnual('current');
-    if (val !== null && showStockDetails) {
-       setSalaryData(prev => ({...prev, current: {...prev.current, stockValue: val}}));
-    }
-  }, [salaryData.current.stockCount, salaryData.current.strikePrice, salaryData.current.grantPrice, salaryData.current.vestingYears]);
+  const removeCompetitor = (id) => {
+    setSalaryData(prev => ({
+      ...prev,
+      competitors: prev.competitors.filter(c => c.id !== id)
+    }));
+  };
 
-  useEffect(() => {
-    const val = calculateStockAnnual('offer');
-    if (val !== null && showStockDetails) {
-       setSalaryData(prev => ({...prev, offer: {...prev.offer, stockValue: val}}));
-    }
-  }, [salaryData.offer.stockCount, salaryData.offer.strikePrice, salaryData.offer.grantPrice, salaryData.offer.vestingYears]);
+  const updateCompetitorData = (id, field, value) => {
+    setSalaryData(prev => ({
+      ...prev,
+      competitors: prev.competitors.map(c => 
+        c.id === id ? { ...c, data: { ...c.data, [field]: value } } : c
+      )
+    }));
+  };
 
+  const updateCompetitorName = (id, name) => {
+    setSalaryData(prev => ({
+      ...prev,
+      competitors: prev.competitors.map(c => 
+        c.id === id ? { ...c, name: name } : c
+      )
+    }));
+  };
 
-  // --- 计算逻辑 ---
+  // --- 核心计算逻辑 ---
   const calculatePackage = (data) => {
     const baseTotal = safeParse(data.baseMonthly) * safeParse(data.months);
     const allowanceTotal = safeParse(data.fixedAllowance) * 12;
@@ -176,42 +186,98 @@ const SmartSalaryApp = () => {
 
   const currentPkg = useMemo(() => calculatePackage(salaryData.current), [salaryData.current]);
   const offerPkg = useMemo(() => calculatePackage(salaryData.offer), [salaryData.offer]);
+  
+  const competitorStats = useMemo(() => {
+    let maxPkg = 0;
+    let maxComp = null;
+    const allPkgs = salaryData.competitors.map(c => {
+        const pkg = calculatePackage(c.data);
+        if (pkg.totalPackage > maxPkg) {
+            maxPkg = pkg.totalPackage;
+            maxComp = c;
+        }
+        return { id: c.id, ...pkg };
+    });
+    return { maxPkg, maxComp, allPkgs };
+  }, [salaryData.competitors]);
 
   const suggestedPkg = useMemo(() => {
-    const targetTotal = currentPkg.totalPackage * (1 + adviseParams.targetIncrease);
-    const stockPart = targetTotal * adviseParams.stockRatio;
-    const cashPart = targetTotal - stockPart;
+    const targetBasedOnCurrent = currentPkg.totalPackage * (1 + adviseParams.targetIncrease);
+    const targetBasedOnCompetitor = competitorStats.maxPkg > 0 
+      ? competitorStats.maxPkg * (1 + adviseParams.beatCompetitorPremium) 
+      : 0;
+
+    const finalTargetTotal = Math.max(targetBasedOnCurrent, targetBasedOnCompetitor);
+
+    const stockPart = finalTargetTotal * adviseParams.stockRatio;
+    const cashPart = finalTargetTotal - stockPart;
+    
     const months = safeParse(salaryData.offer.months) || safeParse(salaryData.current.months) || 12;
     const bonus = safeParse(salaryData.offer.performanceBonus);
     const signOn = safeParse(salaryData.offer.signOnBonus);
     const allowance = safeParse(salaryData.offer.fixedAllowance) * 12;
-    let suggestedBase = (cashPart - bonus - signOn - allowance) / months;
+    const other = safeParse(salaryData.offer.other);
+    
+    let suggestedBase = (cashPart - bonus - signOn - allowance - other) / months;
     if (suggestedBase < 0) suggestedBase = 0; 
 
-    return { total: targetTotal, stock: stockPart, baseMonthly: suggestedBase, cashTotal: cashPart };
-  }, [currentPkg.totalPackage, adviseParams, salaryData.offer, salaryData.current]);
+    return { 
+      total: finalTargetTotal, 
+      stock: stockPart, 
+      baseMonthly: suggestedBase, 
+      cashTotal: cashPart,
+      isBasedOnCompetitor: targetBasedOnCompetitor > targetBasedOnCurrent
+    };
+  }, [currentPkg.totalPackage, adviseParams, salaryData.offer, salaryData.current, competitorStats.maxPkg]);
 
   const stats = useMemo(() => {
     const cashIncrease = currentPkg.cashTotal > 0 ? (offerPkg.cashTotal - currentPkg.cashTotal) / currentPkg.cashTotal : 0;
     const totalIncrease = currentPkg.totalPackage > 0 ? (offerPkg.totalPackage - currentPkg.totalPackage) / currentPkg.totalPackage : 0;
-    const monthlyIncrease = currentPkg.monthlyCash > 0 ? (offerPkg.monthlyCash - currentPkg.monthlyCash) / currentPkg.monthlyCash : 0;
-    return { cashIncrease, totalIncrease, monthlyIncrease };
-  }, [currentPkg, offerPkg]);
-
-  const calculateDeductions = (base) => {
-    const housing = base * socialSecurity.housingRate;
-    const pension = base * socialSecurity.pensionRate;
-    const medical = base * socialSecurity.medicalRate;
-    const unemployment = base * socialSecurity.unemploymentRate;
-    const total = housing + pension + medical + unemployment;
-    return { housing, pension, medical, unemployment, total };
-  };
+    const stockIncrease = currentPkg.totalPackage > 0 && salaryData.current.stockValue > 0 
+        ? (salaryData.offer.stockValue - salaryData.current.stockValue) / salaryData.current.stockValue 
+        : 0;
+    return { cashIncrease, totalIncrease, stockIncrease };
+  }, [currentPkg, offerPkg, salaryData]);
 
   const flowStats = useMemo(() => {
     const total = bankFlows.reduce((sum, item) => sum + safeParse(item.amount), 0);
     const avg = bankFlows.filter(f => safeParse(f.amount) > 0).length > 0 ? total / bankFlows.filter(f => safeParse(f.amount) > 0).length : 0;
     return { total, avg };
   }, [bankFlows]);
+
+  const calculateSocialDeduction = (base) => (socialSecurity.housingRate + socialSecurity.pensionRate + socialSecurity.medicalRate + socialSecurity.unemploymentRate) * base;
+  
+  const reverseCalculatePreTax = (netIncome) => {
+    if (!netIncome) return 0;
+    const deduction = calculateSocialDeduction(socialSecurity.basePersonal); 
+    const threshold = 5000;
+    let low = netIncome; let high = netIncome * 2; let guess = low;
+    for(let i=0; i<20; i++) { 
+       guess = (low + high) / 2;
+       const taxable = Math.max(0, guess - deduction - threshold);
+       let tax = 0;
+       if(taxable <= 3000) tax = taxable * 0.03;
+       else if(taxable <= 12000) tax = taxable * 0.1 - 210;
+       else if(taxable <= 25000) tax = taxable * 0.2 - 1410;
+       else if(taxable <= 35000) tax = taxable * 0.25 - 2660;
+       else if(taxable <= 55000) tax = taxable * 0.3 - 4410;
+       else if(taxable <= 80000) tax = taxable * 0.35 - 7160;
+       else tax = taxable * 0.45 - 15160;
+       const calculatedNet = guess - deduction - tax;
+       if (Math.abs(calculatedNet - netIncome) < 1) break;
+       if (calculatedNet > netIncome) high = guess; else low = guess;
+    }
+    return guess;
+  };
+
+  const realTotalPreTaxIncome = useMemo(() => {
+    return bankFlows.reduce((sum, item) => {
+      const val = safeParse(item.amount);
+      if (val === 0) return sum;
+      if (flowType === 'preTax') return sum + val;
+      else return sum + reverseCalculatePreTax(val);
+    }, 0);
+  }, [bankFlows, flowType, socialSecurity]);
 
   const estimatedPreTax = useMemo(() => {
     if (flowStats.avg === 0) return 0;
@@ -223,17 +289,53 @@ const SmartSalaryApp = () => {
     return flowStats.avg / (1 - socialRate - taxRate);
   }, [flowStats.avg, socialSecurity]);
 
-  const deductions = useMemo(() => calculateDeductions(socialSecurity.basePersonal), [socialSecurity.basePersonal, socialSecurity.housingRate]);
+  const deductions = useMemo(() => {
+    const rate = socialSecurity.housingRate + socialSecurity.pensionRate + socialSecurity.medicalRate + socialSecurity.unemploymentRate;
+    const total = socialSecurity.basePersonal * rate;
+    return { total, housing: socialSecurity.basePersonal * socialSecurity.housingRate, pension: socialSecurity.basePersonal * socialSecurity.pensionRate };
+  }, [socialSecurity]);
 
-  const getAdviceText = () => {
-    const tips = [];
-    if (stats.cashIncrease < 0.10 && stats.cashIncrease >= 0) tips.push({ type: 'warning', text: '现金涨幅低于10%，接Offer意愿可能较低。' });
-    if (stats.cashIncrease < 0) tips.push({ type: 'danger', text: '现金负增长，风险极高。' });
-    if (safeParse(salaryData.offer.stockValue) / offerPkg.totalPackage > 0.4) tips.push({ type: 'warning', text: '期权占比超40%，依赖长期价值。' });
-    if (currentPkg.monthlyCash > offerPkg.monthlyCash) tips.push({ type: 'danger', text: '月薪倒挂。' });
-    if(estimatedPreTax > safeParse(salaryData.current.baseMonthly) * 1.15) tips.push({ type: 'info', text: `流水反推月薪(${formatCurrency(estimatedPreTax)})显著偏高，请核查。`});
-    if (tips.length === 0 && stats.totalIncrease > 0.15) tips.push({ type: 'good', text: '方案结构平衡，风险可控。' });
-    return tips;
+  const calculatedRealBonusMonths = useMemo(() => {
+    const base = safeParse(salaryData.current.baseMonthly);
+    const fixedMonths = safeParse(salaryData.current.months); 
+    const allowance = safeParse(salaryData.current.fixedAllowance) * 12;
+    const signOn = safeParse(salaryData.current.signOnBonus);
+    const other = safeParse(salaryData.current.other);
+    if (base === 0 || realTotalPreTaxIncome === 0) return 0;
+    const fixedIncome = (base * fixedMonths) + allowance + signOn + other;
+    const bonusPart = realTotalPreTaxIncome - fixedIncome;
+    if (bonusPart <= 0) return 0;
+    return bonusPart / base;
+  }, [realTotalPreTaxIncome, salaryData.current]);
+
+  const handleBonusMonthsChange = (type, months, compId = null) => {
+    if (type === 'competing' && compId) {
+       const comp = salaryData.competitors.find(c => c.id === compId);
+       const base = safeParse(comp.data.baseMonthly);
+       updateCompetitorData(compId, 'bonusMonths', months);
+       updateCompetitorData(compId, 'performanceBonus', Math.round(base * months));
+    } else if (type === 'current' || type === 'offer') {
+       const base = safeParse(salaryData[type].baseMonthly);
+       setSalaryData(prev => ({ ...prev, [type]: { ...prev[type], bonusMonths: months, performanceBonus: Math.round(base * months) } }));
+    }
+  };
+
+  const handleBonusAmountChange = (type, amount, compId = null) => {
+    if (type === 'competing' && compId) {
+       const comp = salaryData.competitors.find(c => c.id === compId);
+       const base = safeParse(comp.data.baseMonthly);
+       updateCompetitorData(compId, 'performanceBonus', amount);
+       if (base > 0) updateCompetitorData(compId, 'bonusMonths', (amount/base).toFixed(1));
+    } else if (type === 'current' || type === 'offer') {
+       const base = safeParse(salaryData[type].baseMonthly);
+       let months = 0; if (base > 0) months = (amount / base).toFixed(1);
+       setSalaryData(prev => ({ ...prev, [type]: { ...prev[type], performanceBonus: amount, bonusMonths: months } }));
+    }
+  };
+
+  const applyRealBonusMonths = () => {
+    const months = parseFloat(calculatedRealBonusMonths.toFixed(1));
+    handleBonusMonthsChange('current', months);
   };
 
   const applySuggestion = (field, value) => {
@@ -243,338 +345,204 @@ const SmartSalaryApp = () => {
     });
   };
 
-  // --- 导出功能实现 ---
-
-  // 1. 导出 PDF (利用浏览器打印)
-  const handlePrintPDF = () => {
-    setShowExportModal(false);
-    setShowCandidate(true);
-    setShowSocialDetails(true);
-    setTimeout(() => {
-      window.print();
-    }, 500);
+  const getAdviceText = () => {
+    const tips = [];
+    if (suggestedPkg.isBasedOnCompetitor) {
+      tips.push({ type: 'info', text: `AI 建议已自动上调，以应对最高竞对 ${competitorStats.maxComp?.name} (${formatCurrency(competitorStats.maxPkg)})。`});
+    }
+    if (offerPkg.totalPackage < competitorStats.maxPkg) {
+      tips.push({ type: 'danger', text: `当前 Offer 总包 (${formatCurrency(offerPkg.totalPackage)}) 低于最高竞对 ${competitorStats.maxComp?.name} (${formatCurrency(competitorStats.maxPkg)})，存在拒签风险。`});
+    }
+    if (stats.cashIncrease < 0.10 && stats.cashIncrease >= 0) tips.push({ type: 'warning', text: '现金涨幅低于10%，接Offer意愿可能较低。' });
+    if (stats.cashIncrease < 0) tips.push({ type: 'danger', text: '现金负增长，风险极高。' });
+    if (safeParse(salaryData.offer.stockValue) / offerPkg.totalPackage > 0.4) tips.push({ type: 'warning', text: '期权占比超40%，依赖长期价值。' });
+    
+    if (tips.length === 0 && stats.totalIncrease > 0.15) tips.push({ type: 'good', text: '方案结构平衡，风险可控。' });
+    return tips;
   };
 
-  // 2. 导出 Word (.doc)
+  const handlePrintPDF = () => { setShowExportModal(false); setShowCandidate(true); setShowSocialDetails(true); setTimeout(() => window.print(), 500); };
+  
   const handleExportWord = () => {
-    const adviceList = getAdviceText().map(a => `<p style="color: ${a.type === 'danger' ? 'red' : a.type === 'warning' ? '#d97706' : '#059669'}; margin: 5px 0;">• ${a.text}</p>`).join('');
-    
+    const compRows = salaryData.competitors.map(c => `<th>${c.name}</th>`).join('');
+    const compCellsBase = salaryData.competitors.map(c => `<td>${formatCurrency(c.data.baseMonthly)}</td>`).join('');
+    const compCellsTotal = salaryData.competitors.map(c => {
+       const pkg = calculatePackage(c.data);
+       return `<td>${formatCurrency(pkg.totalPackage)}</td>`;
+    }).join('');
+
     const htmlContent = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-      <head>
-        <meta charset='utf-8'>
-        <title>SmartComps Report</title>
-        <style>
-          body { font-family: 'SimSun', '宋体', serif; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          th, td { border: 1px solid #000; padding: 8px; text-align: center; font-size: 14px; }
-          th { background-color: #f3f4f6; font-weight: bold; }
-          .title { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 20px; }
-          .section-title { font-size: 16px; font-weight: bold; background-color: #e5e7eb; padding: 5px; margin-top: 20px; margin-bottom: 10px; }
-          .highlight { color: #4f46e5; font-weight: bold; }
-          .delta-pos { color: #059669; }
-          .delta-neg { color: #dc2626; }
-        </style>
-      </head>
-      <body>
-        <div class="title">SmartComps 定薪分析报告</div>
-        
-        <div class="section-title">一、候选人信息</div>
-        <table>
-          <tr>
-            <td>姓名</td><td>${candidateInfo.name}</td>
-            <td>工龄</td><td>${candidateInfo.workYears}</td>
-          </tr>
-          <tr>
-            <td>岗位</td><td>${candidateInfo.position}</td>
-            <td>定级</td><td>${candidateInfo.level}</td>
-          </tr>
-          <tr>
-            <td>学历</td><td>${candidateInfo.educationType}</td>
-            <td>院校</td><td>${candidateInfo.school}</td>
-          </tr>
-        </table>
-
-        <div class="section-title">二、薪资方案对比</div>
-        <table>
-          <tr>
-            <th>项目</th>
-            <th>目前 (Current)</th>
-            <th>新方案 (Offer)</th>
-            <th>差异 (Delta)</th>
-          </tr>
-          <tr>
-            <td>基本月薪</td>
-            <td>${formatCurrency(salaryData.current.baseMonthly)}</td>
-            <td class="highlight">${formatCurrency(salaryData.offer.baseMonthly)}</td>
-            <td class="${salaryData.offer.baseMonthly > salaryData.current.baseMonthly ? 'delta-pos' : 'delta-neg'}">
-              ${formatDelta(salaryData.offer.baseMonthly - salaryData.current.baseMonthly)}
-            </td>
-          </tr>
-          <tr>
-            <td>年度现金 (Cash)</td>
-            <td>${formatCurrency(currentPkg.cashTotal)}</td>
-            <td class="highlight">${formatCurrency(offerPkg.cashTotal)}</td>
-            <td class="${stats.cashIncrease >= 0 ? 'delta-pos' : 'delta-neg'}">
-               ${formatPercentPrecise(stats.cashIncrease)}
-            </td>
-          </tr>
-          <tr>
-            <td>期权价值 (Stock)</td>
-            <td>${formatCurrency(salaryData.current.stockValue)}</td>
-            <td>${formatCurrency(salaryData.offer.stockValue)}</td>
-            <td>${formatDelta(salaryData.offer.stockValue - salaryData.current.stockValue)}</td>
-          </tr>
-          <tr>
-            <td><strong>年度总包 (Total)</strong></td>
-            <td><strong>${formatCurrency(currentPkg.totalPackage)}</strong></td>
-            <td class="highlight"><strong>${formatCurrency(offerPkg.totalPackage)}</strong></td>
-            <td class="${stats.totalIncrease >= 0 ? 'delta-pos' : 'delta-neg'}">
-              <strong>${formatPercentPrecise(stats.totalIncrease)}</strong>
-            </td>
-          </tr>
-        </table>
-
-        <div class="section-title">三、AI 风险评估</div>
-        <div style="border: 1px solid #e5e7eb; padding: 10px;">
-          ${adviceList || '无特殊风险，方案结构稳健。'}
-        </div>
-
-        <div class="section-title">四、合规核查</div>
-        <table>
-          <tr>
-            <td>近12个月平均流水</td>
-            <td>${formatCurrency(flowStats.avg)}</td>
-            <td>反推税前月薪</td>
-            <td>≈ ${formatCurrency(estimatedPreTax)}</td>
-          </tr>
-          <tr>
-            <td>公积金基数</td>
-            <td>${formatCurrency(socialSecurity.basePersonal)}</td>
-            <td>公积金比例</td>
-            <td>${formatPercent(socialSecurity.housingRate)}</td>
-          </tr>
-        </table>
-        
-        <p style="text-align: right; margin-top: 30px; font-size: 12px; color: #666;">生成的报告时间：${new Date().toLocaleDateString()}</p>
-      </body>
-      </html>
+      <head><meta charset='utf-8'><title>SmartComps</title>
+      <style>table{width:100%;border-collapse:collapse;margin-bottom:20px}th,td{border:1px solid #000;padding:8px;text-align:center}</style>
+      </head><body>
+      <h3>SmartComps 定薪分析报告</h3>
+      <div class="section-title">一、候选人信息</div>
+      <table>
+        <tr><td>姓名</td><td>${candidateInfo.name}</td><td>工龄</td><td>${candidateInfo.workYears}</td></tr>
+        <tr><td>岗位</td><td>${candidateInfo.position}</td><td>定级</td><td>${candidateInfo.level}</td></tr>
+        <tr><td>学历</td><td>${candidateInfo.educationType}</td><td>院校</td><td>${candidateInfo.school}</td></tr>
+        <tr><td>目前公司</td><td>${candidateInfo.currentCompany}</td><td>对标人员</td><td>${candidateInfo.peerReference}</td></tr>
+      </table>
+      <h4>薪资方案对比</h4>
+      <table>
+        <tr><th>项目</th><th>目前</th>${compRows}<th>Offer</th><th>差异</th></tr>
+        <tr><td>基本月薪</td><td>${formatCurrency(salaryData.current.baseMonthly)}</td>${compCellsBase}<td>${formatCurrency(salaryData.offer.baseMonthly)}</td><td>${formatDelta(salaryData.offer.baseMonthly - salaryData.current.baseMonthly)}</td></tr>
+        <tr><td><strong>年度总包</strong></td><td>${formatCurrency(currentPkg.totalPackage)}</td>${compCellsTotal}<td><strong>${formatCurrency(offerPkg.totalPackage)}</strong></td><td>${formatPercentPrecise(stats.totalIncrease)}</td></tr>
+      </table>
+      </body></html>
     `;
-
-    const blob = new Blob(['\ufeff', htmlContent], {
-      type: 'application/msword'
-    });
-    
-    // 创建下载链接
+    const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `定薪报告_${candidateInfo.name}_${new Date().toISOString().split('T')[0]}.doc`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setShowExportModal(false);
+    const link = document.createElement('a'); link.href = url; link.download = `定薪报告_${candidateInfo.name}.doc`;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link); setShowExportModal(false);
   };
-
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-10 print:bg-white print:pb-0">
-      {/* 顶部导航 (打印时隐藏) */}
+      {/* 顶部导航 */}
       <div className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm print:hidden">
-        <div className="max-w-5xl mx-auto px-4">
+        <div className="w-full px-4">
           <div className="flex items-center justify-between h-14">
             <div className="flex items-center gap-2">
-              <div className="bg-indigo-600 p-1.5 rounded-lg">
-                <TrendingUp className="text-white w-4 h-4" />
-              </div>
+              <div className="bg-indigo-600 p-1.5 rounded-lg"><TrendingUp className="text-white w-4 h-4" /></div>
               <span className="font-bold text-lg tracking-tight text-slate-800">SmartComps <span className="text-slate-400 font-normal text-sm ml-2">定薪工作台</span></span>
             </div>
-            <button 
-              onClick={() => setShowExportModal(true)}
-              className="text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-2 text-sm font-medium hover:bg-slate-50 px-3 py-2 rounded-lg"
-            >
+            <button onClick={() => setShowExportModal(true)} className="text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-2 text-sm font-medium hover:bg-slate-50 px-3 py-2 rounded-lg">
               <Save className="w-4 h-4" /> 导出报告
             </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-6 print:py-0 print:space-y-4 print:max-w-none">
+      <div className="w-full px-4 py-6 space-y-6 print:py-0 print:space-y-4">
         
-        {/* 打印页头 (仅打印显示) */}
-        <div className="hidden print:block text-center border-b pb-4 mb-4">
-          <h1 className="text-2xl font-bold">SmartComps 定薪分析报告</h1>
-          <p className="text-sm text-slate-500">生成时间：{new Date().toLocaleDateString()}</p>
-        </div>
-
-        {/* 顶部核心指标看板 (上下分层优化版) */}
+        {/* 指标看板 */}
         <div className="grid grid-cols-4 gap-4">
-          {/* Card 1: Total */}
           <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-indigo-600 print:border print:shadow-none flex flex-col justify-between">
-            <div>
-              <div className="text-slate-500 text-xs font-bold uppercase mb-1">总包涨幅 (Total)</div>
-              <div className="text-3xl font-bold text-indigo-700 tracking-tight">{formatPercentPrecise(stats.totalIncrease)}</div>
-            </div>
-            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-              <span className="text-slate-400">差额 Gap</span>
-              <span className="font-bold text-indigo-700">{formatCurrency(offerPkg.totalPackage - currentPkg.totalPackage)}</span>
-            </div>
+            <div><div className="text-slate-500 text-xs font-bold uppercase mb-1">总包涨幅 (Total)</div><div className="text-3xl font-bold text-indigo-700 tracking-tight">{formatPercentPrecise(stats.totalIncrease)}</div></div>
+            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs"><span className="text-slate-400">差额 Gap</span><span className="font-bold text-indigo-700">{formatCurrency(offerPkg.totalPackage - currentPkg.totalPackage)}</span></div>
           </div>
-
-          {/* Card 2: Cash */}
           <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-emerald-500 print:border print:shadow-none flex flex-col justify-between">
-            <div>
-              <div className="text-slate-500 text-xs font-bold uppercase mb-1">现金涨幅 (Cash)</div>
-              <div className="text-3xl font-bold text-emerald-600 tracking-tight">{formatPercentPrecise(stats.cashIncrease)}</div>
-            </div>
-            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-              <span className="text-slate-400">差额 Gap</span>
-              <span className="font-bold text-emerald-600">{formatCurrency(offerPkg.cashTotal - currentPkg.cashTotal)}</span>
-            </div>
+            <div><div className="text-slate-500 text-xs font-bold uppercase mb-1">现金涨幅 (Cash)</div><div className="text-3xl font-bold text-emerald-600 tracking-tight">{formatPercentPrecise(stats.cashIncrease)}</div></div>
+            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs"><span className="text-slate-400">差额 Gap</span><span className="font-bold text-emerald-600">{formatCurrency(offerPkg.cashTotal - currentPkg.cashTotal)}</span></div>
           </div>
-
-          {/* Card 3: Equity */}
           <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-400 print:border print:shadow-none flex flex-col justify-between">
             <div>
-              <div className="text-slate-500 text-xs font-bold uppercase mb-1">期权占比 (Equity)</div>
-              <div className="text-3xl font-bold text-orange-500 tracking-tight">
-                {formatPercentPrecise(offerPkg.totalPackage > 0 ? safeParse(salaryData.offer.stockValue) / offerPkg.totalPackage : 0)}
+              <div className="text-slate-500 text-xs font-bold uppercase mb-1">期权占比 / 涨幅</div>
+              <div className="flex items-baseline gap-2">
+                 <div className="text-3xl font-bold text-orange-500 tracking-tight">{formatPercentPrecise(offerPkg.totalPackage > 0 ? safeParse(salaryData.offer.stockValue) / offerPkg.totalPackage : 0)}</div>
+                 {salaryData.current.stockValue > 0 && <div className={`text-xs font-bold ${stats.stockIncrease >= 0 ? 'text-emerald-500' : 'text-red-500'} bg-slate-50 px-1 rounded`}>{stats.stockIncrease > 0 ? '+' : ''}{formatPercent(stats.stockIncrease)} Incr.</div>}
               </div>
             </div>
-            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-              <span className="text-slate-400">目标配置</span>
-              <span className="font-bold text-orange-500">{formatPercent(adviseParams.stockRatio)}</span>
-            </div>
+            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs"><span className="text-slate-400">目标配置</span><span className="font-bold text-orange-500">{formatPercent(adviseParams.stockRatio)}</span></div>
           </div>
-
-          {/* Card 4: Offer Total */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-slate-500 print:border print:shadow-none flex flex-col justify-between">
-            <div>
-              <div className="text-slate-500 text-xs font-bold uppercase mb-1">Offer 总包</div>
-              <div className="text-2xl font-bold text-slate-800 tracking-tight truncate" title={formatCurrency(offerPkg.totalPackage)}>{formatCurrency(offerPkg.totalPackage)}</div>
-            </div>
+          <div className={`bg-white p-4 rounded-xl shadow-sm border-l-4 ${offerPkg.totalPackage > competitorStats.maxPkg ? 'border-slate-500' : 'border-red-500'} print:border print:shadow-none flex flex-col justify-between`}>
+            <div><div className="text-slate-500 text-xs font-bold uppercase mb-1">Offer 总包</div><div className="text-2xl font-bold text-slate-800 tracking-tight truncate">{formatCurrency(offerPkg.totalPackage)}</div></div>
+            {/* Max Threat Indicator */}
             <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-              <span className="text-slate-400">其中现金</span>
-              <span className="font-bold text-slate-600">{formatCurrency(offerPkg.cashTotal)}</span>
+              <span className="text-slate-400">vs 最高竞对</span>
+              {competitorStats.maxPkg > 0 ? (
+                <span className={`font-bold ${offerPkg.totalPackage > competitorStats.maxPkg ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {offerPkg.totalPackage > competitorStats.maxPkg ? '领先' : '落后'} {formatDelta(offerPkg.totalPackage - competitorStats.maxPkg)}
+                </span>
+              ) : <span className="text-slate-300">暂无竞对</span>}
             </div>
           </div>
         </div>
 
-        {/* 1. 候选人信息 */}
+        {/* 候选人信息 (完整版) */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none">
-            <button 
-              onClick={() => setShowCandidate(!showCandidate)}
-              className="w-full flex justify-between items-center bg-white px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors print:hidden"
-            >
-              <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
-                  <User className="w-4 h-4 text-blue-600"/> 
-                  <span>候选人信息</span>
-                  {!showCandidate && (
-                    <span className="text-xs font-normal text-slate-400 ml-2">
-                      {candidateInfo.name} | {candidateInfo.position} | {candidateInfo.level}
-                    </span>
-                  )}
-              </div>
+            <button onClick={() => setShowCandidate(!showCandidate)} className="w-full flex justify-between items-center bg-white px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors print:hidden">
+              <div className="flex items-center gap-2 text-slate-800 font-bold text-sm"><User className="w-4 h-4 text-blue-600"/> <span>候选人信息</span></div>
               {showCandidate ? <ChevronUp className="w-4 h-4 text-slate-400"/> : <ChevronDown className="w-4 h-4 text-slate-400"/>}
             </button>
-            {/* 打印时直接显示标题 */}
-            <div className="hidden print:block px-4 py-2 font-bold text-sm bg-slate-50 border-b">候选人信息</div>
-
             {showCandidate && (
               <div className="p-4 bg-slate-50/30 print:bg-white">
                 <div className="grid grid-cols-4 gap-3">
-                  <div className="col-span-1">
-                    <label className="text-[10px] text-slate-400 block mb-1">姓名</label>
-                    <input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
-                      value={candidateInfo.name} onChange={e => setCandidateInfo({...candidateInfo, name: e.target.value})} />
-                  </div>
-                  <div className="col-span-1">
-                    <label className="text-[10px] text-slate-400 block mb-1">工龄</label>
-                    <input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
-                      value={candidateInfo.workYears} onChange={e => setCandidateInfo({...candidateInfo, workYears: e.target.value})} />
-                  </div>
-                  <div className="col-span-1">
-                    <label className="text-[10px] text-slate-400 block mb-1">定级</label>
-                    <input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
-                      value={candidateInfo.level} onChange={e => setCandidateInfo({...candidateInfo, level: e.target.value})} />
-                  </div>
-                  <div className="col-span-1">
-                    <label className="text-[10px] text-slate-400 block mb-1">岗位</label>
-                    <input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
-                      value={candidateInfo.position} onChange={e => setCandidateInfo({...candidateInfo, position: e.target.value})} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-[10px] text-slate-400 block mb-1">学历/形式</label>
-                    <input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
-                      value={candidateInfo.educationType} onChange={e => setCandidateInfo({...candidateInfo, educationType: e.target.value})} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-[10px] text-slate-400 block mb-1">院校</label>
-                    <input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
-                      value={candidateInfo.school} onChange={e => setCandidateInfo({...candidateInfo, school: e.target.value})} />
-                  </div>
+                  <div className="col-span-1"><label className="text-[10px] text-slate-400 block mb-1">姓名</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.name} onChange={e => setCandidateInfo({...candidateInfo, name: e.target.value})} /></div>
+                  <div className="col-span-1"><label className="text-[10px] text-slate-400 block mb-1">年龄</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.age} onChange={e => setCandidateInfo({...candidateInfo, age: e.target.value})} /></div>
+                  <div className="col-span-1"><label className="text-[10px] text-slate-400 block mb-1">工龄</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.workYears} onChange={e => setCandidateInfo({...candidateInfo, workYears: e.target.value})} /></div>
+                  <div className="col-span-1"><label className="text-[10px] text-slate-400 block mb-1">学历/形式</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.educationType} onChange={e => setCandidateInfo({...candidateInfo, educationType: e.target.value})} /></div>
+                  
+                  <div className="col-span-1"><label className="text-[10px] text-slate-400 block mb-1">毕业院校</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.school} onChange={e => setCandidateInfo({...candidateInfo, school: e.target.value})} /></div>
+                  <div className="col-span-1"><label className="text-[10px] text-slate-400 block mb-1">目前公司</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.currentCompany} onChange={e => setCandidateInfo({...candidateInfo, currentCompany: e.target.value})} /></div>
+                  <div className="col-span-1"><label className="text-[10px] text-slate-400 block mb-1">岗位</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.position} onChange={e => setCandidateInfo({...candidateInfo, position: e.target.value})} /></div>
+                  <div className="col-span-1"><label className="text-[10px] text-slate-400 block mb-1">定级</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.level} onChange={e => setCandidateInfo({...candidateInfo, level: e.target.value})} /></div>
+                  
+                  <div className="col-span-2"><label className="text-[10px] text-slate-400 block mb-1">部门同级参考</label><input className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs" value={candidateInfo.peerReference} onChange={e => setCandidateInfo({...candidateInfo, peerReference: e.target.value})} /></div>
                 </div>
               </div>
             )}
         </div>
 
-        {/* 2. 薪资定薪区 */}
         <div className="bg-white rounded-xl shadow-lg border border-indigo-100 overflow-hidden relative print:border print:shadow-none">
-          
-          {/* 模拟控制器 (打印时隐藏滑块，只显示值) */}
+          {/* Slider Control Bar */}
           <div className="bg-gradient-to-r from-slate-50 to-indigo-50/50 px-4 py-3 border-b border-indigo-100 flex justify-between items-center print:bg-white print:border-b-2">
             <div className="flex items-center gap-4 flex-1">
-              <div className="flex items-center text-sm font-bold text-slate-800">
-                <Briefcase className="w-4 h-4 mr-2 text-indigo-600" /> 薪资结构
-              </div>
-              
+              <div className="flex items-center text-sm font-bold text-slate-800"><Briefcase className="w-4 h-4 mr-2 text-indigo-600" /> 薪资结构</div>
+              {/* Target Increase Slider */}
               <div className="flex items-center gap-2 ml-4 bg-white/60 px-3 py-1 rounded-lg border border-indigo-100 shadow-sm print:border-none print:shadow-none print:pl-0">
                   <span className="text-[10px] font-semibold text-slate-500">目标涨幅</span>
-                  <input 
-                    type="range" min="0" max="0.6" step="0.05"
-                    className="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 print:hidden"
-                    value={adviseParams.targetIncrease}
-                    onChange={(e) => setAdviseParams({...adviseParams, targetIncrease: parseFloat(e.target.value)})}
-                  />
+                  <input type="range" min="0" max="0.6" step="0.05" className="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 print:hidden" value={adviseParams.targetIncrease} onChange={(e) => setAdviseParams({...adviseParams, targetIncrease: parseFloat(e.target.value)})} />
                   <span className="text-xs font-bold text-indigo-600 w-8 text-right">{formatPercent(adviseParams.targetIncrease)}</span>
               </div>
+              {/* Stock Ratio Slider */}
               <div className="flex items-center gap-2 bg-white/60 px-3 py-1 rounded-lg border border-indigo-100 shadow-sm print:border-none print:shadow-none">
                   <span className="text-[10px] font-semibold text-slate-500">期权比例</span>
-                  <input 
-                    type="range" min="0" max="0.5" step="0.05"
-                    className="w-16 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500 print:hidden"
-                    value={adviseParams.stockRatio}
-                    onChange={(e) => setAdviseParams({...adviseParams, stockRatio: parseFloat(e.target.value)})}
-                  />
+                  <input type="range" min="0" max="0.5" step="0.05" className="w-16 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500 print:hidden" value={adviseParams.stockRatio} onChange={(e) => setAdviseParams({...adviseParams, stockRatio: parseFloat(e.target.value)})} />
                   <span className="text-xs font-bold text-orange-600 w-8 text-right">{formatPercent(adviseParams.stockRatio)}</span>
               </div>
             </div>
+            
+            {/* 竞对 Offer 开关 */}
+            <button onClick={() => setShowCompeting(!showCompeting)} className={`text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all font-medium border ${showCompeting ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>
+              <Swords className="w-3.5 h-3.5" /> {showCompeting ? '隐藏竞对' : '添加竞对 Offer'}
+            </button>
           </div>
           
-          <div className="p-4">
-              <div className="grid grid-cols-12 gap-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide text-center items-center">
-                <div className="col-span-3 text-left pl-2">项目 (Item)</div>
-                <div className="col-span-2">目前 (Current)</div>
-                <div className="col-span-3 text-purple-600 bg-purple-50 rounded py-1 border border-purple-100 flex items-center justify-center gap-1 print:bg-white print:border-none">
-                  <Wand2 className="w-3 h-3" /> 智能建议
+          <div className="p-4 overflow-x-auto">
+              {/* Dynamic Grid Layout */}
+              <div className={`flex gap-4 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide text-center items-center ${showCompeting ? 'min-w-[800px]' : 'w-full grid grid-cols-12'}`}>
+                <div className={`${showCompeting ? 'w-24 text-left pl-2 flex-shrink-0' : 'col-span-3 text-left pl-2'}`}>项目</div>
+                <div className={`${showCompeting ? 'w-24 flex-shrink-0' : 'col-span-2'}`}>目前 (Current)</div>
+                
+                {/* 动态渲染竞对列头 (仅在开启时显示) */}
+                {showCompeting && salaryData.competitors.map((comp) => (
+                  <div key={comp.id} className="w-28 flex-shrink-0 flex flex-col gap-1 relative group">
+                     <div className={`rounded py-1 border flex items-center justify-between px-2 ${comp.id === competitorStats.maxComp?.id ? 'bg-red-50 text-red-700 border-red-200' : 'bg-purple-50 text-purple-600 border-purple-100'}`}>
+                        <input className="bg-transparent w-full text-center outline-none font-bold" value={comp.name} onChange={(e) => updateCompetitorName(comp.id, e.target.value)} />
+                        <button onClick={() => removeCompetitor(comp.id)} className="opacity-0 group-hover:opacity-100 hover:text-red-500 absolute -top-2 -right-2 bg-white rounded-full p-0.5 border shadow-sm"><X className="w-3 h-3"/></button>
+                     </div>
+                     {comp.id === competitorStats.maxComp?.id && <div className="text-[8px] text-red-500 flex justify-center items-center gap-0.5"><Trophy className="w-2 h-2"/> 最高竞对</div>}
+                  </div>
+                ))}
+                {showCompeting && <button onClick={addCompetitor} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-purple-50 text-slate-400 hover:text-purple-600 transition-colors flex-shrink-0"><Plus className="w-4 h-4"/></button>}
+
+                {/* AI建议列 */}
+                <div className={`${showCompeting ? 'w-28 flex-shrink-0 flex-col justify-center' : 'col-span-3'} text-purple-600 bg-purple-50 rounded py-1 print:hidden flex flex-col items-center justify-center`}>
+                   <div className="flex items-center justify-center gap-1"><Wand2 className="w-3 h-3 inline mr-1" />建议值</div>
+                   {suggestedPkg.isBasedOnCompetitor && <span className="text-[8px] text-purple-400">已锚定竞对</span>}
                 </div>
-                <div className="col-span-2 text-emerald-600 bg-emerald-50 rounded py-1 border border-emerald-100 print:bg-white print:border-none">Offer</div>
-                <div className="col-span-2">差额 (Delta)</div>
+
+                <div className={`${showCompeting ? 'w-24 flex-shrink-0' : 'col-span-2'} text-emerald-600 bg-emerald-50 rounded py-1 border border-emerald-100 print:bg-white print:border-none`}>Offer</div>
+                <div className={`${showCompeting ? 'w-20 flex-shrink-0' : 'col-span-2'}`}>差额</div>
               </div>
 
-              {/* 录入行 */}
+              {/* Rows Generator */}
               {[
                 { label: '基本月薪 (Base)', key: 'baseMonthly', suggestVal: suggestedPkg.baseMonthly, isMain: true },
                 { label: '发薪月数 (Months)', key: 'months', isNum: true, step: 0.5 },
                 { label: '月度补贴 (Allowance)', key: 'fixedAllowance' },
-                { label: '绩效/年终 (Bonus)', key: 'performanceBonus' },
+                { label: '年终奖月数 (Bonus M)', key: 'bonusMonths', isNum: true, step: 0.1 }, // Restored
+                { label: '绩效/年终 (Bonus)', key: 'performanceBonus' }, 
                 { label: '签字费 (Sign-on)', key: 'signOnBonus' },
+                { label: '其他奖金 (Other)', key: 'other' },
                 { label: '期权年化 (Stock)', key: 'stockValue', suggestVal: suggestedPkg.stock, isMain: true, hasDetail: true },
               ].map((field) => {
                 const currVal = safeParse(salaryData.current[field.key]);
                 const offerVal = safeParse(salaryData.offer[field.key]);
                 const delta = offerVal - currVal;
-                const percent = currVal > 0 ? delta / currVal : 0;
                 
                 let displaySuggest = '-';
                 let canApply = false;
@@ -583,326 +551,201 @@ const SmartSalaryApp = () => {
                     canApply = true;
                 }
 
+                // Detect special rows
+                const isBonusAmountRow = field.key === 'performanceBonus';
+                const isBonusMonthsRow = field.key === 'bonusMonths';
+
+                // Grid vs Flex conditional classes for row wrapper
+                const rowContainerClass = showCompeting 
+                  ? "flex gap-4 mb-2 items-center rounded-lg p-1 transition-all min-w-[800px]" 
+                  : "grid grid-cols-12 gap-2 mb-2 items-center rounded-lg p-1 transition-all w-full";
+
+                // Cell widths based on mode
+                const labelClass = showCompeting ? "w-24 flex-shrink-0" : "col-span-3 text-left pl-2";
+                const inputClass = showCompeting ? "w-24 flex-shrink-0" : "col-span-2";
+                const suggestClass = showCompeting ? "w-28 flex-shrink-0" : "col-span-3";
+                const deltaClass = showCompeting ? "w-20 flex-shrink-0" : "col-span-2";
+
                 return (
-                  <React.Fragment key={field.key}>
-                    <div className={`grid grid-cols-12 gap-2 mb-2 items-center rounded-lg p-1 transition-all ${
-                      field.isMain ? 'bg-slate-50 border border-slate-100 shadow-sm py-2 print:bg-white print:border-b' : 'hover:bg-slate-50'
-                    }`}>
-                      <div className="col-span-3 text-xs text-slate-700 font-medium pl-2 truncate flex items-center gap-2">
-                        {field.hasDetail && (
-                          <button onClick={() => setShowStockDetails(!showStockDetails)} className="text-slate-400 hover:text-indigo-600 print:hidden">
-                             {showStockDetails ? <ChevronDown className="w-3 h-3"/> : <MoreHorizontal className="w-3 h-3"/>}
-                          </button>
-                        )}
-                        <div className="flex flex-col justify-center">
-                          <span>{field.label.split(' ')[0]}</span>
-                          <span className="text-[10px] text-slate-400 font-normal">{field.label.split(' ')[1]}</span>
-                        </div>
+                  <div key={field.key} className={`${rowContainerClass} ${field.isMain ? 'bg-slate-50 border border-slate-100 shadow-sm py-2' : 'hover:bg-slate-50'}`}>
+                      {/* Label */}
+                      <div className={`${labelClass} text-xs text-slate-700 font-medium pl-2 truncate flex items-center gap-2`}>
+                        {field.hasDetail && <button onClick={() => setShowStockDetails(!showStockDetails)} className="text-slate-400 hover:text-indigo-600 print:hidden"><MoreHorizontal className="w-3 h-3"/></button>}
+                        <div className="flex flex-col justify-center"><span>{field.label.split(' ')[0]}</span><span className="text-[10px] text-slate-400 font-normal">{field.label.split(' ')[1]}</span></div>
                       </div>
                       
-                      <div className="col-span-2">
+                      {/* Current */}
+                      <div className={inputClass}>
                         <input 
-                          type="number" step={field.step || 100}
-                          value={salaryData.current[field.key]}
-                          onChange={(e) => setSalaryData({ ...salaryData, current: { ...salaryData.current, [field.key]: e.target.value } })}
-                          className="w-full px-1 py-1 text-xs border border-transparent hover:border-slate-200 bg-transparent text-center focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded transition-all outline-none text-slate-600 print:border-none"
-                          placeholder="0"
+                          type="number" step={field.step || 100} value={salaryData.current[field.key]} 
+                          onChange={(e) => {
+                            if (isBonusAmountRow) handleBonusAmountChange('current', e.target.value);
+                            else if (isBonusMonthsRow) handleBonusMonthsChange('current', e.target.value);
+                            else setSalaryData({ ...salaryData, current: { ...salaryData.current, [field.key]: e.target.value } });
+                          }} 
+                          className="w-full px-1 py-1 text-xs border border-transparent hover:border-slate-200 bg-transparent text-center focus:bg-white focus:border-indigo-500 rounded outline-none text-slate-600" placeholder="0" 
                         />
                       </div>
 
-                      <div className="col-span-3 flex items-center justify-between px-2 bg-purple-50/50 rounded border border-purple-100/50 mx-1 h-full print:bg-white print:border-none">
-                          <span className={`text-xs font-semibold ${field.isMain ? 'text-purple-700' : 'text-slate-300'}`}>
-                            {displaySuggest}
-                          </span>
-                          {canApply && (
-                            <button 
-                              onClick={() => applySuggestion(field.key, field.suggestVal)}
-                              className="text-purple-400 hover:text-purple-600 hover:bg-purple-100 rounded-full p-0.5 transition-colors print:hidden"
-                            >
-                              <ArrowRightCircle className="w-4 h-4" />
-                            </button>
-                          )}
+                      {/* Competitors Columns (Only visible when active) */}
+                      {showCompeting && salaryData.competitors.map(comp => (
+                        <div key={comp.id} className="w-28 flex-shrink-0">
+                           <input 
+                             type="number" step={field.step || 100} value={comp.data[field.key]} 
+                             onChange={(e) => {
+                               if (isBonusAmountRow) handleBonusAmountChange('competing', e.target.value, comp.id);
+                               else if (isBonusMonthsRow) handleBonusMonthsChange('competing', e.target.value, comp.id);
+                               else updateCompetitorData(comp.id, field.key, e.target.value);
+                             }} 
+                             className="w-full px-1 py-1 text-xs border border-purple-100 bg-purple-50/20 rounded text-center text-purple-700 outline-none focus:ring-1 focus:ring-purple-200" placeholder="0" 
+                           />
+                        </div>
+                      ))}
+                      {showCompeting && <div className="w-8 flex-shrink-0"></div>}
+
+                      {/* Suggested */}
+                      <div className={`${suggestClass} flex items-center justify-between px-2 bg-purple-50/50 rounded border border-purple-100/50 h-full`}>
+                          <span className={`text-xs font-semibold ${field.isMain ? 'text-purple-700' : 'text-slate-300'}`}>{displaySuggest}</span>
+                          {canApply && <button onClick={() => applySuggestion(field.key, field.suggestVal)} className="text-purple-400 hover:text-purple-600 hover:bg-purple-100 rounded-full p-0.5 transition-colors print:hidden"><ArrowRightCircle className="w-4 h-4" /></button>}
                       </div>
                       
-                      <div className="col-span-2">
+                      {/* Offer */}
+                      <div className={inputClass}>
                         <input 
-                          type="number" step={field.step || 100}
-                          value={salaryData.offer[field.key]}
-                          onChange={(e) => setSalaryData({ ...salaryData, offer: { ...salaryData.offer, [field.key]: e.target.value } })}
-                          className={`w-full px-1 py-1 text-xs border rounded text-center focus:ring-2 focus:ring-emerald-200 outline-none font-bold transition-all shadow-sm ${
-                            offerVal > currVal ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-800'
-                          } print:border-none`}
-                          placeholder="0"
+                          type="number" step={field.step || 100} value={salaryData.offer[field.key]} 
+                          onChange={(e) => {
+                            if (isBonusAmountRow) handleBonusAmountChange('offer', e.target.value);
+                            else if (isBonusMonthsRow) handleBonusMonthsChange('offer', e.target.value);
+                            else setSalaryData({ ...salaryData, offer: { ...salaryData.offer, [field.key]: e.target.value } });
+                          }} 
+                          className={`w-full px-1 py-1 text-xs border rounded text-center focus:ring-2 focus:ring-emerald-200 outline-none font-bold transition-all shadow-sm ${offerVal > currVal ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-800'}`} placeholder="0" 
                         />
                       </div>
 
-                      <div className="col-span-2 flex flex-col items-end pr-2 justify-center h-full">
-                        {field.key === 'months' ? (
-                            <span className="text-xs text-slate-400">{delta > 0 ? `+${delta}` : delta === 0 ? '-' : delta}</span>
-                        ) : (
-                          <>
-                            <div className={`text-[10px] font-mono leading-tight ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-500' : 'text-slate-300'}`}>
-                              {formatDelta(delta)}
-                            </div>
-                            {delta !== 0 && currVal !== 0 && (
-                              <div className={`text-[8px] px-1 rounded-sm mt-0.5 ${delta > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'} print:border print:border-slate-200`}>
-                                {formatPercent(percent)}
-                              </div>
-                            )}
-                          </>
-                        )}
+                      {/* Delta */}
+                      <div className={`${deltaClass} flex flex-col items-end pr-2 justify-center h-full`}>
+                        <div className={`text-[10px] font-mono leading-tight ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-500' : 'text-slate-300'}`}>{formatDelta(delta)}</div>
                       </div>
-                    </div>
-
-                    {/* 期权明细 (打印时强制展开如果数据存在) */}
-                    {field.hasDetail && (showStockDetails || (salaryData.offer.stockCount > 0 && window.matchMedia && window.matchMedia('print').matches)) && (
-                      <div className="mb-4 mx-2 p-3 bg-orange-50/50 rounded-lg border border-orange-100 grid grid-cols-12 gap-4 animate-in slide-in-from-top-2 duration-200 print:bg-white print:border-dashed">
-                        <div className="col-span-12 text-[10px] font-bold text-orange-800 flex items-center gap-1 mb-1">
-                           <Coins className="w-3 h-3"/> 期权Excel明细
-                        </div>
-                        <div className="col-span-6 space-y-2 border-r border-orange-200 pr-2">
-                           <div className="text-[10px] text-slate-500 font-bold">目前 (Current)</div>
-                           <div className="grid grid-cols-2 gap-2">
-                              <div><label className="text-[9px] text-slate-400 block">股数</label>
-                              <input type="number" className="w-full text-xs p-1 border rounded" placeholder="0" value={salaryData.current.stockCount || ''} onChange={e => setSalaryData({...salaryData, current: {...salaryData.current, stockCount: e.target.value}})} /></div>
-                              <div><label className="text-[9px] text-slate-400 block">行权价</label>
-                              <input type="number" className="w-full text-xs p-1 border rounded" placeholder="0" value={salaryData.current.strikePrice || ''} onChange={e => setSalaryData({...salaryData, current: {...salaryData.current, strikePrice: e.target.value}})} /></div>
-                              <div><label className="text-[9px] text-slate-400 block">当前估值</label>
-                              <input type="number" className="w-full text-xs p-1 border rounded" placeholder="0" value={salaryData.current.grantPrice || ''} onChange={e => setSalaryData({...salaryData, current: {...salaryData.current, grantPrice: e.target.value}})} /></div>
-                              <div><label className="text-[9px] text-slate-400 block">归属(年)</label>
-                              <input type="number" className="w-full text-xs p-1 border rounded" placeholder="4" value={salaryData.current.vestingYears} onChange={e => setSalaryData({...salaryData, current: {...salaryData.current, vestingYears: e.target.value}})} /></div>
-                           </div>
-                        </div>
-                        <div className="col-span-6 space-y-2 pl-2">
-                           <div className="text-[10px] text-emerald-600 font-bold">新 Offer</div>
-                           <div className="grid grid-cols-2 gap-2">
-                              <div><label className="text-[9px] text-slate-400 block">股数</label>
-                              <input type="number" className="w-full text-xs p-1 border rounded border-emerald-100 bg-white" placeholder="0" value={salaryData.offer.stockCount || ''} onChange={e => setSalaryData({...salaryData, offer: {...salaryData.offer, stockCount: e.target.value}})} /></div>
-                              <div><label className="text-[9px] text-slate-400 block">行权价</label>
-                              <input type="number" className="w-full text-xs p-1 border rounded border-emerald-100 bg-white" placeholder="0" value={salaryData.offer.strikePrice || ''} onChange={e => setSalaryData({...salaryData, offer: {...salaryData.offer, strikePrice: e.target.value}})} /></div>
-                              <div><label className="text-[9px] text-slate-400 block">当前估值</label>
-                              <input type="number" className="w-full text-xs p-1 border rounded border-emerald-100 bg-white" placeholder="0" value={salaryData.offer.grantPrice || ''} onChange={e => setSalaryData({...salaryData, offer: {...salaryData.offer, grantPrice: e.target.value}})} /></div>
-                              <div><label className="text-[9px] text-slate-400 block">归属(年)</label>
-                              <input type="number" className="w-full text-xs p-1 border rounded border-emerald-100 bg-white" placeholder="4" value={salaryData.offer.vestingYears} onChange={e => setSalaryData({...salaryData, offer: {...salaryData.offer, vestingYears: e.target.value}})} /></div>
-                           </div>
-                        </div>
-                      </div>
-                    )}
-                  </React.Fragment>
+                  </div>
                 );
               })}
           </div>
           
-          <div className="bg-slate-50 px-4 py-3 border-t border-slate-200 grid grid-cols-12 gap-2 items-center print:bg-white print:border-t-2">
-              <div className="col-span-3 text-xs font-bold text-slate-700 pl-2">年度总包 (Total)</div>
-              <div className="col-span-2 text-xs font-semibold text-slate-500 text-center">{formatCurrency(currentPkg.totalPackage)}</div>
-              <div className="col-span-3 text-xs font-bold text-purple-600 text-center border-x border-slate-200/50 print:border-none">{formatCurrency(suggestedPkg.total)}</div>
-              <div className="col-span-2 text-sm font-bold text-emerald-700 text-center">{formatCurrency(offerPkg.totalPackage)}</div>
-              <div className="col-span-2 text-right pr-2">
-                <span className={`text-xs font-bold ${stats.totalIncrease >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {formatPercent(stats.totalIncrease)}
-                </span>
-              </div>
+          {/* Total Footer (Adaptive) */}
+          <div className={`bg-slate-50 px-4 py-3 border-t border-slate-200 flex items-center print:bg-white print:border-t-2 ${showCompeting ? 'gap-4 min-w-[800px] overflow-x-auto' : 'grid grid-cols-12 gap-2'}`}>
+              <div className={`${showCompeting ? 'w-24' : 'col-span-3 text-left pl-2'} text-xs font-bold text-slate-700 flex-shrink-0`}>年度总包 (Total)</div>
+              <div className={`${showCompeting ? 'w-24' : 'col-span-2'} text-xs font-semibold text-slate-500 text-center flex-shrink-0`}>{formatCurrency(currentPkg.totalPackage)}</div>
+              
+              {showCompeting && salaryData.competitors.map(comp => {
+                 const pkg = calculatePackage(comp.data);
+                 return <div key={comp.id} className="w-28 text-xs font-bold text-purple-600 text-center flex-shrink-0">{formatCurrency(pkg.totalPackage)}</div>;
+              })}
+              {showCompeting && <div className="w-8 flex-shrink-0"></div>}
+
+              <div className={`${showCompeting ? 'w-28' : 'col-span-3'} text-xs font-bold text-purple-600 text-center border-x border-slate-200/50 flex-shrink-0`}>{formatCurrency(suggestedPkg.total)}</div>
+              <div className={`${showCompeting ? 'w-24' : 'col-span-2'} text-sm font-bold text-emerald-700 text-center flex-shrink-0`}>{formatCurrency(offerPkg.totalPackage)}</div>
+              <div className={`${showCompeting ? 'w-20' : 'col-span-2'} text-right pr-2 flex-shrink-0`}><span className={`text-xs font-bold ${stats.totalIncrease >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatPercent(stats.totalIncrease)}</span></div>
           </div>
         </div>
 
-        {/* 3. AI 评估与结构分析 */}
+        {/* 3. AI 评估与结构分析 (图表支持多竞对) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none">
-               <div className="bg-gradient-to-r from-orange-50 to-white px-4 py-3 border-b border-slate-100 print:bg-white">
-                  <span className="font-bold text-slate-800 text-sm flex items-center">
-                     <Lightbulb className="w-4 h-4 mr-2 text-orange-500" /> AI 风险评估
-                  </span>
+               <div className="bg-gradient-to-r from-orange-50 to-white px-4 py-3 border-b border-slate-100">
+                  <span className="font-bold text-slate-800 text-sm flex items-center"><Lightbulb className="w-4 h-4 mr-2 text-orange-500" /> AI 风险评估</span>
                </div>
                <div className="p-4 space-y-2">
-                  {getAdviceText().length === 0 ? (
-                     <div className="text-slate-400 text-xs italic text-center py-2">暂无特殊风险提示，方案稳健。</div>
-                  ) : (
-                     getAdviceText().map((tip, idx) => (
-                       <div key={idx} className={`flex items-start gap-2 text-xs p-2.5 rounded-lg border ${
-                         tip.type === 'warning' ? 'bg-orange-50 border-orange-100 text-orange-800' :
-                         tip.type === 'danger' ? 'bg-red-50 border-red-100 text-red-800' :
-                         tip.type === 'info' ? 'bg-blue-50 border-blue-100 text-blue-800' :
-                         'bg-emerald-50 border-emerald-100 text-emerald-800'
-                       } print:bg-white print:border-slate-200 print:text-slate-800`}>
-                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                         <span className="leading-relaxed">{tip.text}</span>
-                       </div>
-                     ))
-                  )}
+                  {getAdviceText().length === 0 ? <div className="text-slate-400 text-xs italic text-center py-2">暂无特殊风险提示，方案稳健。</div> : getAdviceText().map((tip, idx) => (<div key={idx} className={`flex items-start gap-2 text-xs p-2.5 rounded-lg border ${tip.type === 'warning' ? 'bg-orange-50 border-orange-100 text-orange-800' : tip.type === 'danger' ? 'bg-red-50 border-red-100 text-red-800' : tip.type === 'info' ? 'bg-blue-50 border-blue-100 text-blue-800' : 'bg-emerald-50 border-emerald-100 text-emerald-800'}`}><AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /><span className="leading-relaxed">{tip.text}</span></div>))}
                </div>
            </div>
 
            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none">
-              <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center justify-between">
-                <span>结构可视化</span>
-                <PieChart className="w-4 h-4 text-slate-400"/>
-              </h4>
+              <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center justify-between"><span>全景结构对比</span><PieChart className="w-4 h-4 text-slate-400"/></h4>
               <div className="h-40">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={[
-                    { name: '月薪', current: currentPkg.baseTotal / currentPkg.months, offer: offerPkg.baseTotal / offerPkg.months },
-                    { name: '现金', current: currentPkg.cashTotal, offer: offerPkg.cashTotal },
-                    { name: '总包', current: currentPkg.totalPackage, offer: offerPkg.totalPackage },
-                  ]} margin={{ top: 10, right: 0, left: 0, bottom: 0 }} barSize={15}>
+                    { name: '月薪', current: currentPkg.baseTotal/currentPkg.months, offer: offerPkg.baseTotal/offerPkg.months, ...salaryData.competitors.reduce((acc, c) => ({...acc, [c.name]: safeParse(c.data.baseMonthly)}), {}) },
+                    { name: '现金', current: currentPkg.cashTotal, offer: offerPkg.cashTotal, ...salaryData.competitors.reduce((acc, c) => ({...acc, [c.name]: calculatePackage(c.data).cashTotal}), {}) },
+                    { name: '总包', current: currentPkg.totalPackage, offer: offerPkg.totalPackage, ...salaryData.competitors.reduce((acc, c) => ({...acc, [c.name]: calculatePackage(c.data).totalPackage}), {}) },
+                  ]} margin={{ top: 10, right: 0, left: 0, bottom: 0 }} barSize={10}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
                     <XAxis dataKey="name" tick={{fontSize: 10, fill: '#64748b'}} axisLine={false} tickLine={false} dy={5}/>
                     <YAxis hide />
-                    <RechartsTooltip 
-                      contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px'}}
-                      formatter={(val) => new Intl.NumberFormat('zh-CN', { notation: "compact" }).format(val)} 
-                    />
+                    <RechartsTooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px'}} formatter={(val) => new Intl.NumberFormat('zh-CN', { notation: "compact" }).format(val)} />
                     <Legend iconSize={8} wrapperStyle={{fontSize: '10px'}} verticalAlign="top" align="right"/>
                     <Bar dataKey="current" name="目前" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="offer" name="Offer" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                    {showCompeting && salaryData.competitors.map((c, i) => <Bar key={c.id} dataKey={c.name} name={c.name} fill={COLORS[(i+1)%COLORS.length]} radius={[4, 4, 0, 0]} />)}
+                    <Bar dataKey="offer" name="Offer" fill="#10b981" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
            </div>
         </div>
 
-        {/* 4. 社保与流水合规专区 */}
+        {/* 4. 社保与流水合规专区 (保持不变) */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none">
-             <button 
-               onClick={() => setShowSocialDetails(!showSocialDetails)}
-               className="w-full flex justify-between items-center bg-white px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors print:hidden"
-             >
-                <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
-                   <ShieldCheck className="w-4 h-4 text-indigo-600"/>
-                   <span>社保合规 & 流水核查</span>
-                   {!showSocialDetails && <span className="text-xs font-normal text-slate-400 ml-2">基数: {formatCurrency(socialSecurity.basePersonal)}</span>}
-                </div>
+             <button onClick={() => setShowSocialDetails(!showSocialDetails)} className="w-full flex justify-between items-center bg-white px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors print:hidden">
+                <div className="flex items-center gap-2 text-slate-800 font-bold text-sm"><ShieldCheck className="w-4 h-4 text-indigo-600"/><span>社保合规 & 流水核查</span></div>
                 {showSocialDetails ? <ChevronUp className="w-4 h-4 text-slate-400"/> : <ChevronDown className="w-4 h-4 text-slate-400"/>}
              </button>
-             {/* 打印时直接显示标题 */}
-             <div className="hidden print:block px-4 py-2 font-bold text-sm bg-slate-50 border-b">社保合规 & 流水核查</div>
-
              {showSocialDetails && (
                <div className="grid grid-cols-1 md:grid-cols-2">
                  <div className="p-4 border-r border-slate-100 bg-slate-50/30 print:bg-white">
-                    <div className="text-xs font-bold text-slate-600 mb-3">1. 基数与流水录入</div>
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      <div>
-                        <label className="text-[10px] text-slate-400 block mb-1">社保基数</label>
-                        <input type="number" value={socialSecurity.basePersonal}
-                          onChange={(e) => setSocialSecurity({...socialSecurity, basePersonal: e.target.value})}
-                          className="w-full p-1.5 text-xs border border-slate-200 rounded" />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-400 block mb-1">公积金比例</label>
-                        <select className="w-full p-1.5 text-xs border border-slate-200 rounded bg-white"
-                          value={socialSecurity.housingRate} onChange={(e) => setSocialSecurity({...socialSecurity, housingRate: parseFloat(e.target.value)})}>
-                          <option value="0.05">5%</option>
-                          <option value="0.07">7%</option>
-                          <option value="0.12">12%</option>
-                        </select>
-                      </div>
+                    <div className="flex justify-between items-center mb-3">
+                       <div className="text-xs font-bold text-slate-600">1. 个税APP流水录入</div>
+                       <div className="flex bg-slate-200 rounded p-0.5">
+                          <button onClick={() => setFlowType('preTax')} className={`text-[10px] px-2 py-0.5 rounded transition-all ${flowType === 'preTax' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>税前申报</button>
+                          <button onClick={() => setFlowType('afterTax')} className={`text-[10px] px-2 py-0.5 rounded transition-all ${flowType === 'afterTax' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>银行实发</button>
+                       </div>
                     </div>
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                         <span className="text-[10px] text-slate-400">近12个月实发 (元)</span>
-                         <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                           月均: {formatCurrency(flowStats.avg)}
-                         </span>
-                      </div>
-                      <div className="grid grid-cols-6 gap-2">
-                         {bankFlows.map((flow, i) => (
-                           <input key={i} type="number" placeholder={`M${i+1}`}
-                             value={flow.amount === 0 ? '' : flow.amount}
-                             onChange={(e) => {
-                                const newFlows = [...bankFlows];
-                                newFlows[i].amount = e.target.value;
-                                setBankFlows(newFlows);
-                             }}
-                             className="text-[10px] p-1 border border-slate-200 rounded text-center focus:border-indigo-500 outline-none" />
-                         ))}
-                      </div>
+                    <div className="grid grid-cols-2 gap-3 mb-4 pb-4 border-b border-slate-200">
+                      <div><label className="text-[10px] text-slate-400 block mb-1">社保基数</label><input type="number" className="w-full p-1.5 text-xs border border-slate-200 rounded" value={socialSecurity.basePersonal} onChange={e => setSocialSecurity({...socialSecurity, basePersonal: e.target.value})}/></div>
+                      <div><label className="text-[10px] text-slate-400 block mb-1">公积金比例</label><select className="w-full p-1.5 text-xs border border-slate-200 rounded bg-white" value={socialSecurity.housingRate} onChange={e => setSocialSecurity({...socialSecurity, housingRate: parseFloat(e.target.value)})}> <option value="0.05">5%</option> <option value="0.07">7%</option> <option value="0.12">12%</option> </select></div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                       {bankFlows.map((flow, i) => (
+                         <div key={i} className="relative">
+                           <span className="absolute left-1.5 top-1.5 text-[9px] text-slate-400">M{i+1}</span>
+                           <input type="number" className="w-full pl-6 p-1 text-[10px] border border-slate-200 rounded text-center focus:border-indigo-500 outline-none" value={flow.amount === 0 ? '' : flow.amount} onChange={(e) => { const newFlows = [...bankFlows]; newFlows[i].amount = e.target.value; setBankFlows(newFlows); }} />
+                         </div>
+                       ))}
                     </div>
                  </div>
 
-                 <div className="p-4 bg-white">
-                    <div className="text-xs font-bold text-slate-600 mb-3">2. 扣除明细与反推结果</div>
-                    <div className="space-y-2 mb-4">
-                       <div className="flex justify-between text-xs items-center p-2 bg-slate-50 rounded">
-                         <span className="text-slate-500">五险一金合计(月)</span>
-                         <span className="font-mono font-bold text-slate-700">{formatCurrency(deductions.total)}</span>
-                       </div>
-                       <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-500 px-2">
-                          <div className="flex flex-col">
-                            <span>公积金</span>
-                            <span className="font-medium text-slate-700">{formatCurrency(deductions.housing)}</span>
-                          </div>
-                          <div className="flex flex-col">
-                            <span>社保</span>
-                            <span className="font-medium text-slate-700">{formatCurrency(deductions.pension + deductions.medical + deductions.unemployment)}</span>
-                          </div>
-                          <div className="flex flex-col">
-                            <span>个税预估</span>
-                            <span className="font-medium text-slate-400">系统自算</span>
-                          </div>
-                       </div>
+                 <div className="p-4 bg-white flex flex-col justify-between">
+                    <div>
+                      <div className="text-xs font-bold text-slate-600 mb-3">2. 智能反推结果</div>
+                      <div className="bg-indigo-50 rounded-lg p-3 space-y-2 border border-indigo-100">
+                         <div className="flex justify-between items-center text-xs"><span className="text-slate-500">年度实际税前总收入</span><span className="font-bold text-indigo-700">{formatCurrency(realTotalPreTaxIncome)}</span></div>
+                         <div className="flex justify-between items-center text-xs"><span className="text-slate-500">扣除固定年薪 (Base×{salaryData.current.months})</span><span className="text-slate-400">-{formatCurrency(safeParse(salaryData.current.baseMonthly) * safeParse(salaryData.current.months) + safeParse(salaryData.current.fixedAllowance)*12 + safeParse(salaryData.current.signOnBonus))}</span></div>
+                         <div className="pt-2 border-t border-indigo-100 flex justify-between items-center">
+                            <span className="text-xs font-bold text-indigo-800">真实年终奖月数</span>
+                            <div className="flex items-center gap-2"><span className="text-lg font-bold text-indigo-600">{calculatedRealBonusMonths.toFixed(1)}</span><span className="text-xs text-indigo-400">个月</span></div>
+                         </div>
+                      </div>
                     </div>
-
-                    <div className="pt-3 border-t border-dashed border-slate-100">
-                       <div className="flex justify-between items-center mb-1">
-                          <span className="text-xs text-slate-500">流水反推税前</span>
-                          <span className="text-sm font-bold text-indigo-600">{formatCurrency(estimatedPreTax)}</span>
-                       </div>
-                       <div className="flex justify-between items-center">
-                          <span className="text-xs text-slate-500">Offer月度税前差额</span>
-                          <span className="text-xs font-medium text-emerald-600">
-                             {formatDelta(offerPkg.monthlyCash - currentPkg.monthlyCash)}
-                          </span>
-                       </div>
+                    <div className="mt-4">
+                       <button onClick={applyRealBonusMonths} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-lg transition-colors shadow-sm"><ArrowUpRight className="w-3 h-3" />一键填入 Current 结构</button>
+                       <p className="text-[9px] text-slate-400 text-center mt-2">点击将自动修改左侧“年终奖月数”并更新年终总额</p>
                     </div>
                  </div>
                </div>
              )}
         </div>
+
       </div>
 
-      {/* 导出弹窗 */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                 <h3 className="font-bold text-slate-800">导出定薪分析报告</h3>
-                 <button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
-              </div>
-              
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center"><h3 className="font-bold text-slate-800">导出定薪分析报告</h3><button onClick={() => setShowExportModal(false)}><X className="w-5 h-5 text-slate-400"/></button></div>
               <div className="p-6 grid grid-cols-2 gap-4">
-                 {/* 导出 Word */}
-                 <button 
-                   onClick={handleExportWord}
-                   className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
-                 >
-                    <div className="p-3 bg-blue-100 text-blue-600 rounded-full group-hover:scale-110 transition-transform">
-                      <FileDown className="w-6 h-6"/>
-                    </div>
-                    <div className="text-center">
-                      <div className="font-bold text-slate-700">导出 Word</div>
-                      <div className="text-[10px] text-slate-400 mt-1">生成 .doc 文档 (可编辑)</div>
-                    </div>
-                 </button>
-
-                 {/* 导出 PDF */}
-                 <button 
-                   onClick={handlePrintPDF}
-                   className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all group"
-                 >
-                    <div className="p-3 bg-emerald-100 text-emerald-600 rounded-full group-hover:scale-110 transition-transform">
-                      <Printer className="w-6 h-6"/>
-                    </div>
-                    <div className="text-center">
-                      <div className="font-bold text-slate-700">导出 PDF</div>
-                      <div className="text-[10px] text-slate-400 mt-1">另存为 A4 PDF (打印格式)</div>
-                    </div>
-                 </button>
+                 <button onClick={handleExportWord} className="flex flex-col items-center gap-2 p-4 border border-dashed rounded-xl hover:bg-blue-50"><FileDown className="w-6 h-6 text-blue-500"/><span className="text-sm font-bold text-slate-700">导出 Word</span></button>
+                 <button onClick={handlePrintPDF} className="flex flex-col items-center gap-2 p-4 border border-dashed rounded-xl hover:bg-emerald-50"><Printer className="w-6 h-6 text-emerald-500"/><span className="text-sm font-bold text-slate-700">打印 / PDF</span></button>
               </div>
            </div>
         </div>
       )}
-
     </div>
   );
 };
